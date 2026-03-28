@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>UltimateSolver UI</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="menubar">
+        <div class="brand">
+            <span class="lightning">⚡</span>
+            <span class="title">UltimateSolver</span>
+            <span class="badge">IDE</span>
+        </div>
+        <div class="menu-items">
+            <div class="menu-item dropdown">
+                <span>File</span>
+                <div class="dropdown-content">
+                    <div id="menu-new">📄 新建模型 (New)</div>
+                    <div id="menu-open">📂 打开模型 (Open)</div>
+                    <div id="menu-save">💾 保存模型 (Save)</div>
+                </div>
+            </div>
+            <div class="menu-item dropdown">
+                <span>Edit</span>
+                <div class="dropdown-content">
+                    <div id="menu-cut">✂️ 剪切 (Cut)</div>
+                    <div id="menu-copy">📋 复制 (Copy)</div>
+                    <div id="menu-paste">📝 粘贴 (Paste)</div>
+                </div>
+            </div>
+            <div class="menu-item dropdown">
+                <span>Solver</span>
+                <div class="dropdown-content">
+                    <div id="menu-solve">🚀 启动求解 (Solve)</div>
+                </div>
+            </div>
+            <div class="menu-item dropdown">
+                <span>Help</span>
+                <div class="dropdown-content">
+                    <div id="menu-about">ℹ️ 关于 UltimateSolver</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="toolbar">
+        <div class="tool-group">
+            <button class="tool-btn" id="btn-new" title="新建模型 (New)">📄</button>
+            <button class="tool-btn" id="btn-open" title="打开模型 (Open)">📂</button>
+            <button class="tool-btn" id="btn-save" title="保存模型 (Save)">💾</button>
+        </div>
+        <div class="tool-divider"></div>
+        <div class="tool-group">
+            <button class="tool-btn" id="btn-cut" title="剪切 (Cut)">✂️</button>
+            <button class="tool-btn" id="btn-copy" title="复制 (Copy)">📋</button>
+            <button class="tool-btn" id="btn-paste" title="粘贴 (Paste)">📝</button>
+        </div>
+        <div class="tool-divider"></div>
+        <div class="tool-group">
+            <span class="engine-label">计算引擎节点:</span>
+            <select id="backend-select" class="backend-select" title="选择加速硬件">
+                <option value="cpu" selected>CPU (单核稳定版)</option>
+                <option value="cuda">CUDA (PDHG 并行加速)</option>
+                <option value="vulkan">Vulkan (异构 GPU/跨平台)</option>
+                <option value="npu">NPU (边缘 Nano-Slicing)</option>
+            </select>
+            <button class="solve-btn" id="solve-btn" title="Solve Active Model">
+                <span class="icon">🚀</span> 求解当前 (Solve)
+            </button>
+            <button class="solve-btn" id="solve-all-btn" title="Solve All Models Concurrently" style="background:#8b5cf6; margin-left:8px;">
+                <span class="icon">🌌</span> 批量并发求解 (Solve All)
+            </button>
+        </div>
+    </div>
+    
+    <div class="mdi-workspace" id="workspace">
+        <div class="grid-bg"></div>
+        
+        <!-- Templates -->
+        <template id="model-template">
+            <div class="window model-window" tabindex="-1">
+                <div class="window-header">
+                    <div class="window-title">📝 UltimateSolver 模型编辑器 - <span class="model-name"></span></div>
+                    <div class="window-controls">
+                        <button class="win-btn win-min" title="最小化 (Minimize)">一</button>
+                        <button class="win-btn win-max" title="最大化 (Maximize)">□</button>
+                        <button class="win-btn win-close" title="关闭 (Close)">×</button>
+                    </div>
+                </div>
+                <div class="window-content editor-wrapper">
+                    <div class="line-numbers">1</div>
+                    <div class="editor-layer">
+                        <div class="syntax-highlighting language-lingo" aria-hidden="true"></div>
+                        <textarea class="code-editor" spellcheck="false" wrap="off"></textarea>
+                    </div>
+                </div>
+            </div>
+        </template>
+
+        <template id="report-template">
+            <div class="window report-window" tabindex="-1">
+                <div class="window-header win-success">
+                    <div class="window-title">📊 解析报告 - <span class="report-name"></span></div>
+                    <div class="window-controls">
+                        <button class="win-btn win-min" title="最小化 (Minimize)">一</button>
+                        <button class="win-btn win-max" title="最大化 (Maximize)">□</button>
+                        <button class="win-btn win-close" title="关闭 (Close)">×</button>
+                    </div>
+                </div>
+                <div class="window-content terminal-wrapper">
+                    <div class="report-watermark">UltimateSolver Engine</div>
+                    <div class="solution-output html-report" style="display:none;"></div>
+                </div>
+            </div>
+        </template>
+
+        <!-- Inline Solver Status Template (for Concurrent Window Tracking) -->
+        <template id="status-template">
+            <div class="solver-status-modal" style="position: absolute; top:0; left:0; right:0; bottom:0; display: flex; flex-direction:column; align-items:center; justify-content:center; background: #0a0a0a; z-index:10;">
+                <div class="status-header">
+                    <span>⚡ 引擎状态 (Hardware Monitor)</span>
+                </div>
+                <div class="status-body">
+                    <canvas class="solver-chart" width="360" height="80" style="margin-bottom: 15px; background: rgba(0,0,0,0.2); border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);"></canvas>
+                    <div class="progress-container">
+                        <div class="progress-bar"></div>
+                    </div>
+                    <div class="status-grid">
+                        <div class="status-box">
+                            <div class="label">引擎节点</div>
+                            <div class="value highlight status-backend">CPU</div>
+                        </div>
+                        <div class="status-box">
+                            <div class="label">求解状态</div>
+                            <div class="value status-state">Solving...</div>
+                        </div>
+                    </div>
+                    <div class="status-row">
+                        <span>当前目标函数值 Obj:</span>
+                        <strong class="status-obj text-green">...</strong>
+                    </div>
+                    <div class="status-stats">
+                        <div class="stat-item">
+                            <span class="icon">📦</span>变量数: <span class="stat-vars">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="icon">🔗</span>约束数: <span class="stat-cons">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="icon">⏱️</span>耗时: <span class="stat-time">00:00:00</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

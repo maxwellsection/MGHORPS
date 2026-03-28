@@ -254,11 +254,12 @@ class Solver:
     """
     Execution Engine analogous to `Trainer` or wrapping `ultimate_solvers_unified.py`
     """
-    def __init__(self, method: str = 'auto', use_gpu: bool = None, use_npu: bool = False, npu_cores: int = 2):
+    def __init__(self, method: str = 'auto', use_gpu: bool = None, use_npu: bool = False, npu_cores: int = 2, verbose_options: dict = None):
         self.method = method
         self.use_gpu = use_gpu
         self.use_npu = use_npu
         self.npu_cores = npu_cores
+        self.verbose_options = verbose_options
 
     def solve(self, model: Model) -> Dict[str, Any]:
         if not SOLVER_AVAILABLE:
@@ -274,6 +275,7 @@ class Solver:
             use_gpu=self.use_gpu,
             use_npu=self.use_npu,
             npu_cores=self.npu_cores,
-            method=self.method
+            method=self.method,
+            verbose_options=self.verbose_options
         )
         return result
