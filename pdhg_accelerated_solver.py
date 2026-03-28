@@ -16,7 +16,8 @@ class PDHGSolver:
     s.t. Ax = b  (或 Ax <= b)
          l <= x <= u
     """
-    def __init__(self, tolerance: float = 1e-5, max_iter: int = 100000, use_npu: bool = False, npu_cores: int = 2):
+    def __init__(self, tolerance: float = 1e-5, max_iter: int = 100000, use_npu: bool = False, npu_cores: int = 2, verbose_options: dict = None):
+        self.verbose_options = verbose_options or {'basic': True, 'iterations': False}
         self.tolerance = tolerance
         self.max_iter = max_iter
         self.use_npu = use_npu
@@ -41,8 +42,15 @@ class PDHGSolver:
         
         return tau, sigma
 
+    def _log(self, logs: dict, category: str, msg: str):
+        if category not in logs: logs[category] = []
+        logs[category].append(msg)
+        if self.verbose_options.get(category, False):
+            print(msg)
+            
     def solve(self, c: np.ndarray, A: sp.csc_matrix, b: np.ndarray, 
               bounds: np.ndarray, constraint_types: np.ndarray) -> Dict[str, Any]:
+        logs = {'basic': [], 'iterations': []}
         """
         运行 PDHG 迭代
         
@@ -53,8 +61,8 @@ class PDHGSolver:
             bounds: 变量边界 (n x 2) -> [[低界, 高界], ...]
             constraint_types: 长度m，标记该约束是否为等式('=':1, '<=':0)
         """
-        print(f"🚀 开始 PDHG (Primal-Dual Hybrid Gradient) 求解迭代...")
-        print(f"   📐 矩阵规模: {A.shape[0]}行 x {A.shape[1]}列, 非零元素: {A.nnz}")
+        self._log(logs, 'basic', f"🚀 开始 PDHG (Primal-Dual Hybrid Gradient) 求解迭代...")
+        self._log(logs, 'basic', f"   📐 矩阵规模: {A.shape[0]}行 x {A.shape[1]}列, 非零元素: {A.nnz}")
         
         m, n = A.shape
         start_time = time.time()
@@ -86,12 +94,12 @@ class PDHGSolver:
             y_old = y.copy()
             
             # --- Primal Update (主变量更新) ---
-            # x_next = Proj_X (x - tau * (c - A^T y))
+            # x_next = Proj_X (x - tau * (c + A^T y))
             # 注意：A^T y 是由于求梯度的计算
             if self.use_npu:
-                grad_x = c - self.npu_scheduler.async_spmv(A_T_csr, y)
+                grad_x = c + self.npu_scheduler.async_spmv(A_T_csr, y)
             else:
-                grad_x = c - A_T_csr.dot(y)
+                grad_x = c + A_T_csr.dot(y)
             x = x - tau * grad_x
             
             # 投影到主变量边界 [l, u] 上
@@ -138,12 +146,12 @@ class PDHGSolver:
                 dy_norm = np.linalg.norm(y - y_old) / max(1.0, np.linalg.norm(y))
                 
                 if primal_residual < self.tolerance and dx_norm < self.tolerance and dy_norm < self.tolerance:
-                    print(f"      ✅ PDHG 在迭代 {iteration} 达到容差要求。 (dx_norm: {dx_norm:.2e}, dy_norm: {dy_norm:.2e})")
+                    self._log(logs, 'iterations', f"      ✅ PDHG 在迭代 {iteration} 达到容差要求。 (dx_norm: {dx_norm:.2e}, dy_norm: {dy_norm:.2e})")
                     status = 'optimal'
                     break
                     
                 if iteration % 10000 == 0:
-                    print(f"      📊 PDHG 迭代 {iteration:5d} - 目标值: {obj_val:.4f}, 主约束残差: {primal_residual:.2e}, dx_norm: {dx_norm:.2e}")
+                    self._log(logs, 'iterations', f"      📊 PDHG 迭代 {iteration:5d} - 目标值: {obj_val:.4f}, 主约束残差: {primal_residual:.2e}, dx_norm: {dx_norm:.2e}")
             
             iteration += 1
 
@@ -155,5 +163,6 @@ class PDHGSolver:
             'solution': x,
             'objective_value': obj_value,
             'solve_time': solve_time,
-            'iterations': iteration
+            'iterations': iteration,
+            'logs': logs
         }

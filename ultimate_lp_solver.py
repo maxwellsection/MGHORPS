@@ -69,7 +69,9 @@ class UltimateLPSolver:
     处理任意复杂的线性规划问题
     """
     
-    def __init__(self, tolerance=1e-8, solver='auto', use_gpu=False, use_npu=False, npu_cores=2):
+    def __init__(self, tolerance=1e-8, solver='auto', use_gpu=False, use_npu=False, npu_cores=2, verbose_options=None):
+        self.verbose_options = verbose_options or {'basic': True, 'standardize': False, 'presolve': True, 'tableau': False, 'iterations': False, 'validation': True}
+        self._run_logs = {k: [] for k in ['basic', 'standardize', 'presolve', 'tableau', 'iterations', 'validation']}
         self.tolerance = tolerance
         self.use_npu = use_npu
         self.npu_cores = npu_cores
@@ -105,11 +107,19 @@ class UltimateLPSolver:
             self.use_gpu = False
             self.array_lib = np  # 使用NumPy进行CPU计算
         
-        print(f"🎯 终极线性规划求解器已启动")
+        self._log('basic', f"🎯 终极线性规划求解器已启动")
         print(f"   - 容差: {tolerance}")
         print(f"   - 求解器: {'PuLP' if self.solver == 'pulp' else '内置求解器'}")
         print(f"   - 计算设备: {'GPU' if self.use_gpu else 'NPU' if self.use_npu else 'CPU'}")
     
+
+    def _log(self, category: str, msg: str):
+        if category not in self._run_logs:
+            self._run_logs[category] = []
+        self._run_logs[category].append(msg)
+        if self.verbose_options.get(category, False):
+            print(msg)
+
     def solve(self, objective: Dict, constraints: List[Dict], variables: List[Dict]) -> Dict:
         """
         求解复杂的线性规划问题
@@ -129,16 +139,16 @@ class UltimateLPSolver:
         start_time = time.time()
         
         print(f"\n{'='*60}")
-        print(f"🔥 终极线性规划求解开始 🔥")
+        self._log('basic', f"🔥 终极线性规划求解开始 🔥")
         print(f"{'='*60}")
         
         # 解析问题
         print(f"\n📋 问题解析:")
-        print(f"   目标函数: {objective['type'].upper()}")
+        self._log('basic', f"   目标函数: {objective['type'].upper()}")
         obj_str = " + ".join([f"{coeff:.3f}*{var['name']}" for var, coeff in zip(variables, objective['coeffs'])])
         print(f"   {obj_str}")
-        print(f"   变量数量: {len(variables)}")
-        print(f"   约束数量: {len(constraints)}")
+        self._log('basic', f"   变量数量: {len(variables)}")
+        self._log('basic', f"   约束数量: {len(constraints)}")
         
         try:
             # 根据选择的求解器执行不同的求解逻辑
@@ -167,15 +177,15 @@ class UltimateLPSolver:
                 standard_form = self._standardize_problem(objective, constraints, variables)
                 
                 # 1.5. 预处理 (Presolve)
-                print(f"🔄 第1.5步: 问题预处理 (Presolving)...")
+                self._log('basic', f"🔄 第1.5步: 问题预处理 (Presolving)...")
                 standard_form = self._presolve(standard_form)
 
                 # 2. 构建单纯形表
-                print(f"🔄 第2步: 构建单纯形表...")
+                self._log('basic', f"🔄 第2步: 构建单纯形表...")
                 tableau_info = self._build_tableau(standard_form)
                 
                 # 3. 求解
-                print(f"🔄 第3步: 使用内置求解器进行求解...")
+                self._log('basic', f"🔄 第3步: 使用内置求解器进行求解...")
                 result = self._solve_problem(tableau_info, standard_form)
             
                 # 4. 结果后处理
@@ -183,7 +193,7 @@ class UltimateLPSolver:
                 
                 # 4.5 预处理恢复 (Postsolve)
                 if PRESOLVE_AVAILABLE and hasattr(self, '_active_presolver'):
-                    print(f"🔄 第4.5步: 恢复预处理变量 (Postsolve)...")
+                    self._log('basic', f"🔄 第4.5步: 恢复预处理变量 (Postsolve)...")
                     if result['status'] == 'optimal' and result['solution'] is not None:
                         presolved_vars = standard_form['variables']
                         full_solution = self._active_presolver.postsolve(result['solution'].tolist(), presolved_vars)
@@ -194,6 +204,7 @@ class UltimateLPSolver:
                             result['objective_value'] += standard_form['objective']['offset']
                 
                 final_result = result
+                final_result['logs'] = self._run_logs
             
             final_result['solve_time'] = time.time() - start_time
             final_result['is_feasible'] = final_result['status'] == 'optimal'
@@ -203,9 +214,9 @@ class UltimateLPSolver:
                 self._validate_solution(final_result, objective, constraints, variables)
             
             print(f"\n✅ 求解完成!")
-            print(f"   状态: {final_result['status']}")
-            print(f"   耗时: {final_result['solve_time']:.4f}秒")
-            print(f"   是否可行: {'是' if final_result['is_feasible'] else '否'}")
+            self._log('basic', f"   状态: {final_result['status']}")
+            self._log('basic', f"   耗时: {final_result['solve_time']:.4f}秒")
+            self._log('basic', f"   是否可行: {'是' if final_result['is_feasible'] else '否'}")
             
             return final_result
         except Exception as e:
@@ -221,7 +232,7 @@ class UltimateLPSolver:
     
     def _standardize_problem(self, objective, constraints, variables):
         """标准化问题"""
-        print(f"   📐 标准化约束...")
+        self._log('standardize', f"   📐 标准化约束...")
         
         # 处理约束
         processed_constraints = []
@@ -311,9 +322,9 @@ class UltimateLPSolver:
         # 收集原始变量类型用于后续验证
         original_variable_types = [var.get('type', 'nonneg').lower() for var in variables]
         
-        print(f"   ✅ 标准化完成")
-        print(f"      变量类型: [显示前10个] {variable_types[:10]} ...")
-        print(f"      约束类型: [显示前10个] {[c['type'] for c in processed_constraints][:10]} ...")
+        self._log('standardize', f"   ✅ 标准化完成")
+        self._log('standardize', f"      变量类型: [显示前10个] {variable_types[:10]} ...")
+        self._log('standardize', f"      约束类型: [显示前10个] {[c['type'] for c in processed_constraints][:10]} ...")
         
         return {
             'objective': objective,
@@ -330,7 +341,7 @@ class UltimateLPSolver:
             self._active_presolver = AdvancedPresolver(tolerance=self.tolerance)
             return self._active_presolver.presolve(problem)
             
-        print(f"   🧹 运行粗颗粒预处理 (由于找不到 presolver.py，仅使用简单逻辑)...")
+        self._log('presolve', f"   🧹 运行粗颗粒预处理 (由于找不到 presolver.py，仅使用简单逻辑)...")
         constraints = problem['constraints']
         orig_count = len(constraints)
         
@@ -353,14 +364,14 @@ class UltimateLPSolver:
 
         eliminated = orig_count - len(valid_constraints)
         if eliminated > 0:
-            print(f"   🧹 预处理移除了 {eliminated} 个冗余的零截距约束。保留 {len(valid_constraints)} 个约束矩阵行。")
+            self._log('presolve', f"   🧹 预处理移除了 {eliminated} 个冗余的零截距约束。保留 {len(valid_constraints)} 个约束矩阵行。")
             problem['constraints'] = valid_constraints
 
         return problem
     
     def _build_tableau(self, problem):
         """构建单纯形表"""
-        print(f"   📊 构建表格...")
+        self._log('tableau', f"   📊 构建表格...")
         
         constraints = problem['constraints']
         variable_types = problem['variable_types']
@@ -413,20 +424,20 @@ class UltimateLPSolver:
         # 设置初始基 - 对于<=约束，松弛变量是基变量；对于>=约束，初始基不可行
         # 需要处理等式约束的情况
         
-        print(f"   🎯 初始基设置:")
+        self._log('tableau', f"   🎯 初始基设置:")
         basic_vars = []
         for i in range(n_expanded_vars, n_expanded_vars + n_slack):
             basic_vars.append(f"松弛变量{i-n_expanded_vars+1}")
         for i in range(n_expanded_vars + n_slack, n_expanded_vars + n_slack + n_artificial):
             basic_vars.append(f"人工变量{i-(n_expanded_vars+n_slack)+1}")
         
-        print(f"      初始基变量: {basic_vars}")
-        print(f"      初始基解: 所有原始变量=0，基变量=约束右端值")
+        self._log('tableau', f"      初始基变量: {basic_vars}")
+        self._log('tableau', f"      初始基解: 所有原始变量=0，基变量=约束右端值")
         
-        print(f"   ✅ 表格构建完成")
-        print(f"      表格大小: {tableau.shape}")
-        print(f"      原始变量: {n_vars} → 展开变量: {n_expanded_vars}")
-        print(f"      约束: {n_processed_constraints}, 松弛变量: {n_slack}, 冗余变量: {n_surplus}, 人工变量: {n_artificial}")
+        self._log('tableau', f"   ✅ 表格构建完成")
+        self._log('tableau', f"      表格大小: {tableau.shape}")
+        self._log('tableau', f"      原始变量: {n_vars} → 展开变量: {n_expanded_vars}")
+        self._log('tableau', f"      约束: {n_processed_constraints}, 松弛变量: {n_slack}, 冗余变量: {n_surplus}, 人工变量: {n_artificial}")
         
         return {
             'tableau': tableau,
@@ -509,7 +520,7 @@ class UltimateLPSolver:
     
     def _two_phase_simplex(self, tableau, n_constraints, tableau_info, objective):
         """两阶段单纯形法"""
-        print(f"      🔄 使用两阶段法...")
+        self._log('basic', f"      🔄 使用两阶段法...")
         
         # 阶段1: 消除人工变量
         phase1_result = self._eliminate_artificial_variables(tableau, n_constraints, tableau_info)
@@ -521,30 +532,19 @@ class UltimateLPSolver:
                 'tableau': phase1_result.get('tableau')
             }
         
-        # 移除人工变量和冗余变量
+        # 移除人工变量
         tableau = phase1_result['tableau']
         
-        # 先移除冗余变量
-        surplus_start = tableau_info['n_expanded_vars'] + tableau_info['n_slack']
-        if tableau_info['n_surplus'] > 0:
-            tableau = np.delete(tableau, range(surplus_start, surplus_start + tableau_info['n_surplus']), axis=1)
-            # 移除冗余变量后，人工变量的起始位置变为 n_expanded_vars + n_slack
-            new_artificial_start = tableau_info['n_expanded_vars'] + tableau_info['n_slack']
-        else:
-            # 如果没有移除冗余变量，人工变量起始位置不变
-            new_artificial_start = tableau_info['n_expanded_vars'] + tableau_info['n_slack'] + tableau_info['n_surplus']
-        
-        # 然后移除人工变量
+        # 人工变量起始位置
+        artificial_start = tableau_info['n_expanded_vars'] + tableau_info['n_slack'] + tableau_info['n_surplus']
         if tableau_info['n_artificial'] > 0:
-            # 确保人工变量起始位置在有效范围内
-            if new_artificial_start < tableau.shape[1] and new_artificial_start + tableau_info['n_artificial'] <= tableau.shape[1]:
-                tableau = np.delete(tableau, range(new_artificial_start, new_artificial_start + tableau_info['n_artificial']), axis=1)
+            if artificial_start < tableau.shape[1] and artificial_start + tableau_info['n_artificial'] <= tableau.shape[1]:
+                tableau = np.delete(tableau, range(artificial_start, artificial_start + tableau_info['n_artificial']), axis=1)
             else:
-                # 如果人工变量已经在迭代中被替换，可以跳过移除步骤
-                print(f"      ℹ️  人工变量可能已被替换，跳过移除步骤")
+                self._log('iterations', f"      ℹ️  人工变量可能已被替换，跳过移除步骤")
         
         # 阶段2: 恢复原目标函数并求解原问题
-        print(f"      🔄 阶段2：恢复原目标函数并求解原问题")
+        self._log('iterations', f"      🔄 阶段2：恢复原目标函数并求解原问题")
         
         # 恢复原目标函数（仅保留有效变量的系数）
         original_obj = self.array_lib.zeros(tableau.shape[1])
@@ -555,7 +555,21 @@ class UltimateLPSolver:
         original_obj[:n_valid_vars] = self.array_lib.array(original_coeffs[:n_valid_vars])
         
         tableau[-1, :] = original_obj
-        print(f"      📊 原目标函数恢复完成: {original_obj[:n_valid_vars]}")
+        self._log('iterations', f"      📊 原目标函数恢复完成: {original_obj[:n_valid_vars]}")
+        
+        # 将基变量的检验数(reduced costs)化为0
+        for col in range(tableau.shape[1] - 1):
+            # 检查列是否对应于基变量
+            column_data = tableau[:n_constraints, col]
+            if self.array_lib.sum(self.array_lib.abs(column_data)) == 1.0:
+                row = self.array_lib.argmax(self.array_lib.abs(column_data))
+                if abs(column_data[row]) > 0.5:
+                    # 这是基变量，使用行操作将其检验数清零
+                    factor = tableau[-1, col]
+                    tableau[-1, :] -= factor * tableau[row, :]
+        
+        # 目标值也需要根据基解计算 (此时 tableau[-1, -1] 就被更新了)
+        self._log('iterations', f"      📊 基变量检验数已清零，当前目标值: {tableau[-1, -1]:.6f}")
         
         phase2_result = self._single_phase_simplex(tableau, n_constraints, objective)
         
@@ -568,14 +582,14 @@ class UltimateLPSolver:
     
     def _eliminate_artificial_variables(self, tableau, n_constraints, tableau_info):
         """消除人工变量"""
-        print(f"      🔄 开始阶段1：消除人工变量")
+        self._log('iterations', f"      🔄 开始阶段1：消除人工变量")
         
         # 构建辅助目标函数
         aux_obj = self.array_lib.zeros(tableau.shape[1])
         artificial_start = tableau_info['n_expanded_vars'] + tableau_info['n_slack'] + tableau_info['n_surplus']
         
-        print(f"      📊 人工变量起始位置: {artificial_start}")
-        print(f"      📊 人工变量数量: {tableau_info['n_artificial']}")
+        self._log('iterations', f"      📊 人工变量起始位置: {artificial_start}")
+        self._log('iterations', f"      📊 人工变量数量: {tableau_info['n_artificial']}")
         
         for i in range(tableau_info['n_artificial']):
             aux_obj[artificial_start + i] = 1.0
@@ -588,22 +602,22 @@ class UltimateLPSolver:
             if constraint['type'] in ['>=', '=']:
                 tableau[-1, :] -= tableau[i, :]
         
-        print(f"      📊 辅助目标函数(修正后): {tableau[-1, :]}")
-        print(f"      🔧 开始阶段1优化...")
+        self._log('iterations', f"      📊 辅助目标函数(修正后): {tableau[-1, :]}")
+        self._log('iterations', f"      🔧 开始阶段1优化...")
         
         # 迭代优化
         result = self._simplex_iterations(tableau, n_constraints, max_iter=1000)
         
-        print(f"      📊 阶段1结果: {result['status']}")
+        self._log('iterations', f"      📊 阶段1结果: {result['status']}")
         return result
     
     def _single_phase_simplex(self, tableau, n_constraints, objective):
         """单阶段单纯形法"""
         # 如果是最大化，转换为最小化问题
         if objective['type'].lower() in ['max', 'maximize']:
-            print(f"      🔄 转换最大化问题为最小化问题")
+            self._log('iterations', f"      🔄 转换最大化问题为最小化问题")
             tableau[-1, :] = -tableau[-1, :]
-            print(f"      📊 目标函数行转换: 取负号")
+            self._log('iterations', f"      📊 目标函数行转换: 取负号")
         
         return self._simplex_iterations(tableau, n_constraints, max_iter=1000)
     
@@ -611,7 +625,7 @@ class UltimateLPSolver:
         """单纯形法迭代"""
         iteration = 0
         
-        print(f"      🔄 开始单纯形法迭代...")
+        self._log('iterations', f"      🔄 开始单纯形法迭代...")
         
         while iteration < max_iter:
             # 检查最优性 - 对于最小化问题，检验数应该 >= 0
@@ -620,10 +634,10 @@ class UltimateLPSolver:
             # 寻找最小检验数（对于最小化，最小检验数应该 <= 0）
             min_reduced_cost = self.array_lib.min(last_row)
             
-            print(f"      📊 迭代{iteration}: 最小检验数 = {min_reduced_cost:.6f}")
+            self._log('iterations', f"      📊 迭代{iteration}: 最小检验数 = {min_reduced_cost:.6f}")
             
             if min_reduced_cost >= -self.tolerance:
-                print(f"      ✅ 达到最优解，迭代次数: {iteration}")
+                self._log('iterations', f"      ✅ 达到最优解，迭代次数: {iteration}")
                 return {
                     'status': 'optimal',
                     'tableau': tableau,
@@ -633,19 +647,19 @@ class UltimateLPSolver:
             # 选择枢轴列（最小检验数列）
             pivot_col = self.array_lib.argmin(last_row)
             
-            print(f"      🎯 选择枢轴列: {pivot_col}")
+            self._log('iterations', f"      🎯 选择枢轴列: {pivot_col}")
             
             # 寻找枢轴行 - 使用最小比值测试
             pivot_col_vals = tableau[:n_constraints, pivot_col]
             rhs_vals = tableau[:n_constraints, -1]
             
-            print(f"      📈 枢轴列值: {pivot_col_vals}")
-            print(f"      📊 RHS值: {rhs_vals}")
+            self._log('iterations', f"      📈 枢轴列值: {pivot_col_vals}")
+            self._log('iterations', f"      📊 RHS值: {rhs_vals}")
             
             # 检查无界性 - 所有值都 <= tolerance
             positive_mask = pivot_col_vals > self.tolerance
             if not self.array_lib.any(positive_mask):
-                print(f"      ⚠️ 检测到无界问题")
+                self._log('iterations', f"      ⚠️ 检测到无界问题")
                 return {
                     'status': 'unbounded',
                     'message': '问题无界'
@@ -655,12 +669,12 @@ class UltimateLPSolver:
             ratios = self.array_lib.full(n_constraints, self.array_lib.inf)
             ratios[positive_mask] = rhs_vals[positive_mask] / pivot_col_vals[positive_mask]
             
-            print(f"      📐 比值: {ratios}")
+            self._log('standardize', f"      📐 比值: {ratios}")
             
             # 寻找最小正比值
             min_ratio = self.array_lib.min(ratios[positive_mask])
             if not self.array_lib.isfinite(min_ratio):
-                print(f"      ⚠️ 检测到无界问题")
+                self._log('iterations', f"      ⚠️ 检测到无界问题")
                 return {
                     'status': 'unbounded',
                     'message': '问题无界'
@@ -670,27 +684,27 @@ class UltimateLPSolver:
             min_ratio_idx = self.array_lib.argmin(ratios)
             pivot_row = min_ratio_idx
             
-            print(f"      🎯 选择枢轴行: {pivot_row}, 比值: {min_ratio:.6f}")
+            self._log('iterations', f"      🎯 选择枢轴行: {pivot_row}, 比值: {min_ratio:.6f}")
             
             # 检查枢轴元素
             pivot_element = tableau[pivot_row, pivot_col]
             if abs(pivot_element) < self.tolerance:
-                print(f"      ❌ 枢轴元素过小: {pivot_element}")
+                self._log('iterations', f"      ❌ 枢轴元素过小: {pivot_element}")
                 return {
                     'status': 'numerical_error',
                     'message': '数值计算错误：枢轴元素过小'
                 }
             
             # 执行枢轴运算
-            print(f"      🔧 执行枢轴运算...")
+            self._log('iterations', f"      🔧 执行枢轴运算...")
             tableau = self._pivot(tableau, pivot_row, pivot_col)
             iteration += 1
             
             # 打印当前基解
             current_obj = tableau[-1, -1]
-            print(f"      📊 当前目标值: {current_obj:.6f}")
+            self._log('iterations', f"      📊 当前目标值: {current_obj:.6f}")
         
-        print(f"      ⚠️ 达到最大迭代次数: {max_iter}")
+        self._log('iterations', f"      ⚠️ 达到最大迭代次数: {max_iter}")
         return {
             'status': 'iterations_exceeded',
             'message': '达到最大迭代次数'
@@ -729,9 +743,49 @@ class UltimateLPSolver:
         solution = self._extract_solution(tableau, tableau_info, problem)
         objective_value = tableau[-1, -1]
         
+        # 计算 Reduced Costs 和 Dual Prices
+        n_vars = problem['n_original_vars']
+        reduced_costs = self.array_lib.zeros(n_vars)
+        for var_info in tableau_info['variable_mapping']:
+            reduced_costs[var_info['original_index']] = tableau[-1, var_info['positive_var']]
+            
+        n_constraints = tableau_info['n_constraints']
+        dual_prices = self.array_lib.zeros(n_constraints)
+        slack_start = tableau_info['n_expanded_vars']
+        cur_slack = 0
+        cur_surplus = 0
+        cur_arti = 0
+        n_slack = tableau_info['n_slack']
+        n_surplus = tableau_info['n_surplus']
+        
+        for i, constraint in enumerate(tableau_info['processed_constraints']):
+            if constraint['type'] == '<=':
+                dual_prices[i] = tableau[-1, slack_start + cur_slack]
+                cur_slack += 1
+            elif constraint['type'] == '>=':
+                dual_prices[i] = -tableau[-1, slack_start + n_slack + cur_surplus]
+                cur_surplus += 1
+                cur_arti += 1
+            elif constraint['type'] == '=':
+                # Artificial var col
+                dual_prices[i] = tableau[-1, slack_start + n_slack + n_surplus + cur_arti]
+                cur_arti += 1
+                
+        # 对于最小化问题，tableau 的 RHS 追踪的是 -c^T x
+        if problem['objective']['type'].lower() in ['min', 'minimize']:
+            objective_value = -objective_value
+            reduced_costs = -reduced_costs
+            dual_prices = -dual_prices
+            
+        if self.use_gpu:
+            reduced_costs = cp.asnumpy(reduced_costs)
+            dual_prices = cp.asnumpy(dual_prices)
+        
         return {
             'status': 'optimal',
             'solution': solution,
+            'reduced_costs': reduced_costs,
+            'dual_prices': dual_prices,
             'objective_value': objective_value,
             'message': result.get('message', ''),
             'is_feasible': True,
@@ -767,11 +821,11 @@ class UltimateLPSolver:
                     row = self.array_lib.argmax(self.array_lib.abs(col))
                     if abs(col[row]) > 0.5:  # 确保是1.0而不是其他值
                         solution[orig_idx] = tableau[row, -1]
-                        print(f"      ✅ 基变量: 变量{orig_idx} = {solution[orig_idx]} (行{row})")
+                        self._log('iterations', f"      ✅ 基变量: 变量{orig_idx} = {solution[orig_idx]} (行{row})")
                     else:
-                        pass # print(f"      ⚠️ 非基变量: 变量{orig_idx} = 0")
+                        pass # self._log('iterations', f"      ⚠️ 非基变量: 变量{orig_idx} = 0")
                 else:
-                    pass # print(f"      ⚠️ 非基变量: 变量{orig_idx} = 0")
+                    pass # self._log('iterations', f"      ⚠️ 非基变量: 变量{orig_idx} = 0")
             
             # 如果是自由变量，减去负变量
             if neg_var is not None and neg_var < tableau.shape[1] - 1:
@@ -783,13 +837,13 @@ class UltimateLPSolver:
                     if abs(col[row]) > 0.5:
                         neg_value = tableau[row, -1]
                         solution[orig_idx] -= neg_value
-                        print(f"      📉 减去负部: -{neg_value} (行{row})")
+                        self._log('iterations', f"      📉 减去负部: -{neg_value} (行{row})")
         
         # 如果使用CuPy，将结果转换为NumPy数组
         if self.use_gpu:
             solution = cp.asnumpy(solution)
         
-        print(f"      📊 最终解: {solution}")
+        self._log('basic', f"      📊 最终解: {solution}")
         return solution
     
     def _pdhg_solve(self, objective, constraints, variables):
@@ -874,7 +928,7 @@ class UltimateLPSolver:
                 
             return result
         except Exception as e:
-            print(f"❌ PDHG 求解失败: {str(e)}")
+            self._log('basic', f"❌ PDHG 求解失败: {str(e)}")
             raise e
     
     def _sparse_revised_simplex_solve(self, objective, constraints, variables):
@@ -1010,7 +1064,7 @@ class UltimateLPSolver:
                 
             return res
         except Exception as e:
-            print(f"❌ Revised Simplex 求解失败: {str(e)}")
+            self._log('basic', f"❌ Revised Simplex 求解失败: {str(e)}")
             raise e
             if objective['type'].lower() in ['max', 'maximize']:
                 prob = LpProblem(prob_name, LpMaximize)
@@ -1081,8 +1135,8 @@ class UltimateLPSolver:
                 solution = [var.varValue for var in pulp_vars]
                 objective_value = prob.objective.value()
                 
-                print(f"✅ PuLP求解完成！")
-                print(f"   状态: 最优解")
+                self._log('basic', f"✅ PuLP求解完成！")
+                self._log('basic', f"   状态: 最优解")
                 print(f"   目标值: {objective_value:.6f}")
                 
                 return {
@@ -1092,7 +1146,7 @@ class UltimateLPSolver:
                     'message': '找到最优解'
                 }
             elif status == LpStatusInfeasible:
-                print(f"❌ 问题无解")
+                self._log('basic', f"❌ 问题无解")
                 return {
                     'status': 'infeasible',
                     'message': '问题无可行解'
@@ -1104,14 +1158,14 @@ class UltimateLPSolver:
                     'message': '问题无界'
                 }
             else:
-                print(f"❌ 求解失败: 状态码 {status}")
+                self._log('basic', f"❌ 求解失败: 状态码 {status}")
                 return {
                     'status': 'error',
                     'message': f'求解失败，状态码: {status}'
                 }
                 
         except Exception as e:
-            print(f"❌ PuLP求解过程中出错: {str(e)}")
+            self._log('basic', f"❌ PuLP求解过程中出错: {str(e)}")
             return {
                 'status': 'error',
                 'message': f'PuLP求解错误: {str(e)}'
@@ -1156,7 +1210,7 @@ class UltimateLPSolver:
             
             if var_type in ['free', 'unrestricted']:
                 status = '✅'  # 自由变量无限制
-                print(f"   ✅ {var['name']} = {value:.6f} (自由变量)")
+                self._log('validation', f"   ✅ {var['name']} = {value:.6f} (自由变量)")
             elif var_type in ['nonneg', 'positive', 'pos']:
                 satisfied = value >= -1e-6
                 status = '✅' if satisfied else '❌'

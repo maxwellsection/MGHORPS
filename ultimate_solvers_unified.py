@@ -70,17 +70,21 @@ def get_solver_info():
     }
 
 
-def create_solver(solver_type: str = 'auto', **kwargs):
+def create_solver(solver_type: str = 'auto', verbose_options: dict = None, **kwargs):
     """
     创建求解器实例的工厂函数
     
     参数:
         solver_type: 求解器类型 ('lp', 'ahp', 'decision', 'auto')
+        verbose_options: 详细日志控制选项字典
         **kwargs: 求解器初始化参数
         
     返回:
         求解器实例
     """
+    if verbose_options is not None:
+        kwargs['verbose_options'] = verbose_options
+    
     solver_type = solver_type.lower()
     
     # 自动检测最优求解器
@@ -118,7 +122,7 @@ def create_solver(solver_type: str = 'auto', **kwargs):
         raise ValueError(f"不支持的求解器类型: {solver_type}")
 
 
-def quick_solve_lp(objective: dict, constraints: list, variables: list, use_gpu: bool = None, use_npu: bool = False, npu_cores: int = 2, method: str = 'auto'):
+def quick_solve_lp(objective: dict, constraints: list, variables: list, use_gpu: bool = None, use_npu: bool = False, npu_cores: int = 2, method: str = 'auto', verbose_options: dict = None):
     """
     快速求解线性规划问题
     
@@ -130,14 +134,25 @@ def quick_solve_lp(objective: dict, constraints: list, variables: list, use_gpu:
         use_npu: 是否使用NPU Nano-slicing
         npu_cores: NPU虚拟核心数
         method: 底层求解器算法 ('pdhg', 'pulp', 'builtin', 'auto')
+        verbose_options: 详细日志控制选项字典
         
     返回:
         求解结果
     """
+    # 检查是否包含非线性 (NLP) 特征
+    is_nlp = objective.get('is_nlp', False) or any(c.get('is_nonlinear', False) for c in constraints)
+    if is_nlp:
+        try:
+            from ultimate_nlp_solver import UltimateNLPSolver
+            solver = UltimateNLPSolver(verbose_options=verbose_options)
+            return solver.solve(objective, constraints, variables)
+        except ImportError:
+            raise ImportError("存在非线性函数 (如 @EXP, @LOG)，但无法加载 scipy 或 ultimate_nlp_solver。")
+            
     if use_gpu is None:
         use_gpu = CUPY_AVAILABLE
     
-    solver = create_solver('lp', use_gpu=use_gpu, use_npu=use_npu, npu_cores=npu_cores, solver=method)
+    solver = create_solver('lp', verbose_options=verbose_options, use_gpu=use_gpu, use_npu=use_npu, npu_cores=npu_cores, solver=method)
     return solver.solve(objective, constraints, variables)
 
 
